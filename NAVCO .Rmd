@@ -1,0 +1,259 @@
+---
+title: "NAVCO"
+output: html_document
+---
+```{r}
+library(plotly)
+library(dplyr)
+library(tidyverse)
+library(readxl)
+library(lubridate)
+library(shiny)
+```
+
+# load in data sets
+
+```{r}
+navco_full <- read_excel("~/Desktop/data sets/NAVCO data/navco3-0full.xlsx")
+```
+
+# input ID in ui, output ID in server. input can be called in server, render plot in server, calls plot in ui. 
+
+# UI
+```{r}
+listOfCountries = list("Algeria",
+                       "Bahrain",
+                       "China",
+                       "Egypt",
+                       "Estonia",
+                       "India",
+                       "Iraq",
+                       "Jordan",
+                       "Kenya",
+                       "Libya",
+                       "Madagascar",
+                       "Mexico",
+                       "Morocco",
+                       "Pakistan",
+                       "Sierra Leone",
+                       "South Korea",
+                       "South Sudan",
+                       "Sudan",
+                       "Syria",
+                       "Tanzania",
+                       "Tunisia",
+                       "Turkey",
+                       "Ukraine",
+                       "US",
+                       "Uzbekistan",
+                       "Yemen")
+ui <- navbarPage(
+  # APP TITLE
+  "NAVO data", #SUBJECT TO CHANGE!!!!!
+  # First set of plots
+  tabPanel("overview of dataset",
+           # user input for this set of plots
+           sidebarPanel(
+             #checkboxInput("all_countries", 
+              #             label = "Show All Countries", 
+               #            value = FALSE),
+             selectInput(inputId = "selected_country",
+                         label = "Choose a country to display",
+                         choices = listOfCountries,
+                         selected = "Algeria")
+             ),
+           # plot output for this set of plots
+           mainPanel(
+             tabsetPanel(
+               # plot 1 in this set 
+               tabPanel("Histogram count of protests",
+                        plotlyOutput(outputId = "histogram", height = "300px")
+               ),
+               # plot 2 in this set
+               tabPanel("stack barplot, tact_choice",
+                        plotlyOutput(outputId = "stackedBarplot", height = "300px")
+                 
+               )
+             )
+           )
+  ),
+  # Second set of plots
+  tabPanel("plot(s) 2"),
+  # Third set of plots
+  tabPanel("plots(s) 3"))
+
+
+```
+
+# SERVER 
+```{r}
+server <- function(input, output) {
+  
+  #HISTOGRAM (protest count by tactical choice, single country)
+  
+  output$histogram <- renderPlotly({
+    
+    print(input$selected_country)
+    user_selected_country <- navco_full %>%
+                      filter(country_name == tolower(input$selected_country)) %>%
+                      select(tactical_choice, date, country_name)%>%
+                      mutate(year = year(date))
+   
+    user_selected_country$tactical_choice <- recode(user_selected_country$tactical_choice,
+                                                      '0' = 'primarily violent',
+                                                      '1' = 'primarily non-violent',
+                                                      '2' = 'mixed') 
+    
+    selected_country_histogram <- plot_ly(user_selected_country, x = ~year, color = ~tactical_choice) %>% add_histogram()
+ 
+    selected_country_histogram %>%
+      layout(title = paste('Histogram of protests by tactical choice in', input$selected_country, sep = ""),
+             xaxis = list(title = 'Year'),
+             yaxis = list(title = 'Count'))
+    
+  })
+  
+  #STACKED BARPLOT
+  
+  output$stackedBarplot <- renderPlotly({
+    
+    user_selected_country <- navco_full %>%
+                      filter(country_name == tolower(input$selected_country)) %>%
+                      select(tactical_choice, date, country_name)%>%
+                      mutate(year = year(date))
+   
+    user_selected_country$tactical_choice <- recode(user_selected_country$tactical_choice,
+                                                      '0' = 'primarily violent',
+                                                      '1' = 'primarily non-violent',
+                                                      '2' = 'mixed')
+    
+    base <- count(user_selected_country, year, tactical_choice)
+    base2 <- left_join(base, count(base, year, wt = n))
+    base2 %>%
+      plot_ly(x = ~year, y = ~n, color = ~tactical_choice) %>%
+      add_bars() %>%
+      layout(barmode = 'stack',
+           title = paste('Count of protests by tactical choice in', input$selected_country, sep = ""),
+           xaxis = list(title = 'Year'),
+           yaxis = list(title = 'Count'))
+    
+  })
+  
+}
+
+```
+
+# histogram and bar chart (protest count, n/nv)
+```{r}
+all_countries <- navco_full %>%
+                      select(tactical_choice, date, country_name)%>%
+                      mutate(year = year(date)) 
+
+all_countries$tactical_choice <- recode(all_countries$tactical_choice,
+                                        '0' = 'primarily violent',
+                                        '1' = 'primarily non-violent',
+                                        '2' = 'mixed')    
+
+  all_countries %>%
+    plot_ly(x = ~year, color = ~tactical_choice) %>% 
+    add_histogram()
+ 
+  #total_protest_count_hist
+  
+  total_protest_count_base <- count(all_countries, year, tactical_choice)
+  total_protest_count_base2 <- left_join(total_protest_count_base, count(total_protest_count_base, year, wt = n))
+  
+  total_protest_count_base2 %>%
+    plot_ly(x = ~year, y = ~n, color = ~tactical_choice) %>%
+    add_bars() %>%
+    layout(barmode = 'stack',
+           title = 'Total count of protests by tactical choice',
+           xaxis = list(title = 'Year'),
+           yaxis = list(title = 'Count'))
+```
+
+# diverging bars 
+```{r}
+library(ggplot2)
+
+# data prep
+div_bars <- navco_full %>%
+              select(country_name, tactical_choice) %>%
+              group_by(country_name, tactical_choice) %>%
+              filter(!is.na(tactical_choice)) %>%
+              summarise(total = n()) %>%
+              mutate(percent = total/sum(total))
+
+violent_percent <- filter(div_bars, tactical_choice == 0)
+
+mean_violent_percent = mean(violent_percent$percent)
+
+violent_percent$type <- ifelse(violent_percent$percent < mean_violent_percent, "below", "above")
+
+violent_percent
+
+
+```
+   
+# camp_goals vs. tatic_choice
+#  st_posture vs. tactic_choice 
+
+# actor ID
+```{r}
+navco_actor <- navco_full %>%
+                  select(country_name, date, actor_id) %>%
+                  group_by(actor_id) %>%
+                  summarise(total = n())
+
+navco_actor
+```
+
+
+# attempt at heat map 
+```{r}
+# create subset of continuous data 
+navco_cont <- dplyr::select(navco_full, st_posture, fatal_casu, injuries, num_partic_event, damage)
+
+
+# replace all values "." with NA
+navco_cont <- navco_cont %>% 
+                replace_with_na(replace = list(fatal_casu = ".")) %>%
+                replace_with_na(replace = list(injuries = ".")) %>%
+                replace_with_na(replace = list(num_partic_event = ".")) 
+
+# calculate mid values of ranges 
+find_mid <- function(var){
+  if (any(grepl("-", var, fixed = TRUE))){
+    mid_val <- sapply(strsplit(var, "-"),
+                  function(x)mean(as.numeric(x)))
+    return(mid_val)
+  }
+  else {
+    return(var)
+  }
+} 
+
+navco_cont <- navco_cont %>%
+                mutate(fatal_casu = ifelse(!is.na(fatal_casu), find_mid(fatal_casu), fatal_casu),
+                       injuries = ifelse(!is.na(injuries), find_mid(injuries), injuries),
+                       num_partic_event = ifelse(!is.na(num_partic_event), find_mid(num_partic_event), num_partic_event)
+                       )
+
+#navco_cont <- na.omit(navco_cont)    
+
+# chage variables to numeric type 
+
+????
+
+# scale variables
+navco_cont_scale <- scale(navco_cont)
+# create the distance matrix 
+dist_navco <- dist(navco_cont_scale)
+# create a 2-d projection 
+navco_mds <- cmdscale(dist_navco, k = 2)
+
+navco_mds <- as.data.frame(navco_mds)
+colnames(navco_mds) <- c("mds_coordinate_1", "mds_coordinate_2")
+navco_mds <- mutate(navco_mds, actor = navco_full$actor_id, v_nv = navco_full$tactical_choice)
+```
+
